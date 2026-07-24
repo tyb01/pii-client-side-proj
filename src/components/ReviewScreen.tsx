@@ -5,13 +5,6 @@ import type { Entity, ExtractedPage } from "@/lib/types";
 import EntityHighlightedText from "./EntityHighlightedText";
 import PdfPreview from "./PdfPreview";
 
-const LEGEND: { source: Entity["source"]; label: string; swatch: string }[] = [
-  { source: "regex", label: "Regex / checksum", swatch: "bg-blue-200 dark:bg-blue-900" },
-  { source: "ner-gliner", label: "GLiNER (zero-shot)", swatch: "bg-purple-200 dark:bg-purple-900" },
-  { source: "ner-distilbert", label: "DistilBERT", swatch: "bg-green-200 dark:bg-green-900" },
-  { source: "manual", label: "Manual", swatch: "bg-red-200 dark:bg-red-900" },
-];
-
 interface PdfExportStatus {
   verified: boolean;
   rasterizedPages: number[];
@@ -44,11 +37,6 @@ export default function ReviewScreen({
 }: Props) {
   const [showPreview, setShowPreview] = useState(true);
   const acceptedCount = entities.filter((e) => e.accepted).length;
-  const byLabel = new Map<string, number>();
-  for (const e of entities) {
-    if (!e.accepted) continue;
-    byLabel.set(e.label, (byLabel.get(e.label) ?? 0) + 1);
-  }
 
   return (
     <div className="space-y-6">
@@ -59,16 +47,6 @@ export default function ReviewScreen({
             {acceptedCount} of {entities.length} detections will be redacted · {pages.length} page
             {pages.length === 1 ? "" : "s"}
           </p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {[...byLabel.entries()].map(([label, count]) => (
-              <span
-                key={label}
-                className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-              >
-                {label}: {count}
-              </span>
-            ))}
-          </div>
         </div>
         <div className="flex flex-col items-end gap-1.5">
           <div className="flex gap-2">
@@ -109,19 +87,6 @@ export default function ReviewScreen({
             </p>
           )}
         </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600 dark:text-gray-400">
-        <span className="font-medium">Legend:</span>
-        {LEGEND.map((l) => (
-          <span key={l.source} className="flex items-center gap-1">
-            <span className={`h-3 w-3 rounded ${l.swatch}`} />
-            {l.label}
-          </span>
-        ))}
-        <span className="ml-auto italic">
-          Click a highlight to toggle it · select text to add a manual redaction
-        </span>
       </div>
 
       {showPreview && (
