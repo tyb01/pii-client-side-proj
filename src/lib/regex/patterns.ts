@@ -99,11 +99,14 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
   },
   {
     label: "MEDICAL_RECORD_NUMBER",
-    // [A-Z0-9-] (not just [A-Z0-9]): real MRNs are often prefixed, e.g.
-    // "HRC-0447192" — without the hyphen this silently failed to match at
-    // all (too short once the pattern cut off after the prefix).
+    // Hyphenated segments allow SPACE around the hyphen (`\s*-\s*`), not
+    // just a bare hyphen: PDF text extraction sometimes renders a styled ID
+    // like "MT-2026-04471" as "MT - 2026 - 04471" (each segment a separate
+    // positioned run) — a plain [A-Z0-9-]{5,15} character class doesn't
+    // include spaces, so it silently cut off after just "MT" and missed
+    // the value entirely. Segmented form covers both spaced and unspaced.
     pattern:
-      /(?:\bMRN\b|\bMR\s*#|\bMedical\s+Record(?:\s+Number)?\b|\bPatient\s+ID\b|\bChart\s*#)\s*[:#-]?\s*([A-Z0-9-]{5,15})\b/gi,
+      /(?:\bMRN\b|\bMR\s*#|\bMedical\s+Record(?:\s+Number)?\b|\bPatient\s+ID\b|\bChart\s*#)\s*[:#-]?\s*([A-Z0-9]{2,10}(?:\s*-\s*[A-Z0-9]{1,10}){0,4})\b/gi,
     baseScore: 0.9,
   },
   {
@@ -214,13 +217,27 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
   // sentence continuation aren't swept in.
   //
   // Two guards on each continuation word:
-  //  - `\b(?!\s*:)` rejects the next line's field label when it's a single
-  //    capitalized word directly followed by a colon (e.g. "Emily
-  //    Carter\nPhone:" — without it, "Phone" reads like a 3rd name word).
-  //    The `\b` matters: a bare `(?!\s*:)` lets the engine backtrack the
+  //  - `\b(?!\s*[:/])` rejects the next line's field label when it's a
+  //    single capitalized word directly followed by a colon (e.g. "Emily
+  //    Carter\nPhone:" — without it, "Phone" reads like a 3rd name word),
+  //    or by a slash (e.g. "...Rose\nDOB / Age / Sex:" — a compound label
+  //    whose own colon is several words away, so a bare `:` check alone
+  //    doesn't catch it; "/" is a strong enough signal on its own here
+  //    since it never appears within a real name).
+  //    The `\b` matters: a bare `(?!\s*[:/])` lets the engine backtrack the
   //    word short (e.g. to "Phon") to dodge the lookahead and still match;
   //    `\b` forces the check at the word's actual end, so the whole
   //    continuation is rejected instead of truncated.
+  //    Order matters too: `\b(?!\s*[:/])\.?` (boundary+lookahead BEFORE the
+  //    optional trailing period), not `\.?\b(?!\s*:)` — a middle initial
+  //    like "J." sits between two non-word characters once the period is
+  //    included (the period itself, then trailing whitespace), so `\b`
+  //    right after the period never matches and the engine backtracks to
+  //    leave the period unconsumed. That unconsumed "." then has no
+  //    leading whitespace before it for the NEXT continuation word to
+  //    anchor on, silently truncating "Robert J. Callahan" to "Robert J"
+  //    and dropping the actual last name. Checking `\b` on the word body
+  //    first, then consuming the period unconditionally after, avoids this.
   //  - The separator itself only allows same-line whitespace or a SINGLE
   //    newline (`\n(?![ \t]*\n)`), not a blank-line paragraph gap — without
   //    this, a new paragraph's capitalized first word (e.g. "cc: Dr. Harold
@@ -233,9 +250,16 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     // "Beaumont, Diane" and left "Rose" behind. It now allows up to 2
     // more space-separated continuation words after the first name, same
     // as the plain space-separated branch below it.
+    // Separator is a colon OR 2+ run of whitespace (`\s{2,}`), not a
+    // required colon: table-style layouts ("Patient" | "Donnelly,
+    // Katherine R.") have no colon at all, just cell-gap whitespace —
+    // extracted as several consecutive spaces, unlike the single space in
+    // ordinary prose ("Patient Jane Doe was examined"). Requiring 2+
+    // spaces when there's no colon catches the table case while still
+    // rejecting normal sentences starting with "Patient ".
     label: "PATIENT_NAME",
     pattern:
-      /\bPatient(?:\s*Name)?\s*:\s*([A-Z][a-zA-Z'-]*\.?(?:\s*,\s*[A-Z][a-zA-Z'-]*\.?(?:(?:[ \t]+|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\.?\b(?!\s*:)){0,2}|(?:(?:[ \t]+|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\.?\b(?!\s*:)){1,2}))/g,
+      /\bPatient(?:\s*Name)?(?:\s*:\s*|\s{2,})([A-Z][a-zA-Z'-]*\.?(?:\s*,\s*[A-Z][a-zA-Z'-]*\.?(?:(?:[ \t]+|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\b(?!\s*[:/])\.?){0,2}|(?:(?:[ \t]+|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\b(?!\s*[:/])\.?){1,2}))/g,
     baseScore: 0.85,
   },
   {
@@ -248,7 +272,7 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     // form they actually appear in on real reports; "cc" stays lowercase.
     // See the PATIENT_NAME comment above for the continuation-word guards.
     pattern:
-      /(?:\bReferring\s*\/?\s*Family\s*MD\b|\bReferring\s+Physician\b|\bOrdering\s+Physician\b|\bAttending\s+Physician\b|\bReading\s+Radiologist\b|\bRadiologist\b|\bPathologist\b|\bElectronically\s+[Ss]igned(?:\s+[Bb]y)?\b|\bSigned\s+by\b|\bcc\b|\bNurse\b)\s*:?\s*(?:Dr\.?\s+)?([A-Z][a-zA-Z'-]*\.?(?:(?:[ \t]+|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\.?\b(?!\s*:)){1,2})/g,
+      /(?:\bReferring\s*\/?\s*Family\s*MD\b|\bReferring\s+Physician\b|\bOrdering\s+Physician\b|\bAttending\s+Physician\b|\bReading\s+Radiologist\b|\bRadiologist\b|\bPathologist\b|\bElectronically\s+[Ss]igned(?:\s+[Bb]y)?\b|\bSigned\s+by\b|\bcc\b|\bNurse\b)\s*:?\s*(?:Dr\.?\s+)?([A-Z][a-zA-Z'-]*\.?(?:(?:[ \t]+|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\b(?!\s*[:/])\.?){1,2})/g,
     baseScore: 0.85,
   },
 ];
