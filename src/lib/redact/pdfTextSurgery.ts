@@ -83,13 +83,32 @@ export function redactPageTextInPlace(
 
   operands.forEach((operand, idx) => {
     const opStart = operandTextStart[idx];
-    const opEnd = opStart + latin1Decode(operand.bytes).length;
+    const opEnd = opStart + operand.bytes.length;
     if (opEnd === opStart) return; // unsafe-font or empty operand, nothing to check
 
-    const overlaps = matchedRanges.some((r) => opStart < r.end && opEnd > r.start);
-    if (!overlaps) return;
+    const overlapping = matchedRanges.filter((r) => opStart < r.end && opEnd > r.start);
+    if (overlapping.length === 0) return;
 
-    blankRange(patched, operand.range.start, operand.range.end);
+    const mapCharToByte = charToByteMapper(operand);
+    if (!mapCharToByte) {
+      // Escapes (literal strings) or embedded whitespace (hex strings)
+      // break the simple 1:1 character-to-byte mapping needed to blank just
+      // the matched substring — fall back to the whole operand rather than
+      // risk computing the wrong byte range.
+      blankRange(patched, operand.range.start, operand.range.end, operand.range.kind);
+      anyBlanked = true;
+      return;
+    }
+
+    // Blank only the matched substring(s) within this operand, not the
+    // whole thing — a content stream commonly draws an entire justified
+    // line as ONE string operand, so a single matched value inside a long
+    // line must not take the rest of the line down with it.
+    for (const r of overlapping) {
+      const subStart = Math.max(r.start, opStart) - opStart;
+      const subEnd = Math.min(r.end, opEnd) - opStart;
+      blankRange(patched, mapCharToByte(subStart), mapCharToByte(subEnd), operand.range.kind);
+    }
     anyBlanked = true;
   });
 
@@ -105,11 +124,33 @@ function latin1Decode(bytes: Uint8Array): string {
   return s;
 }
 
+/**
+ * Returns a function mapping a decoded-character index (within this
+ * operand's text) to the corresponding raw byte offset in the content
+ * stream — or null if the raw encoding doesn't correspond 1:1 with decoded
+ * character positions, in which case the caller can't safely blank a
+ * sub-range and must fall back to the whole operand.
+ *
+ *  - Literal strings: any escape sequence (`\n`, `\(`, an octal escape, ...)
+ *    makes the raw byte count differ from the decoded character count, at
+ *    which point a simple `range.start + charIndex` offset would land on
+ *    the wrong byte.
+ *  - Hex strings: whitespace between hex digit pairs (legal per spec) has
+ *    the same effect — decoded length no longer tracks raw length/2.
+ */
+function charToByteMapper(operand: StringOperand): ((charIndex: number) => number) | null {
+  const rawLength = operand.range.end - operand.range.start;
+  if (operand.range.kind === "literal") {
+    if (rawLength !== operand.bytes.length) return null;
+    return (charIndex) => operand.range.start + charIndex;
+  }
+  if (rawLength !== operand.bytes.length * 2) return null;
+  return (charIndex) => operand.range.start + charIndex * 2;
+}
+
 /** Overwrites content bytes in [start, end) with spaces — for hex strings, with '2','0' pairs so it still decodes as valid hex. */
-function blankRange(bytes: Uint8Array, start: number, end: number): void {
-  // Detect hex vs literal by peeking at the delimiter just before `start`.
-  const isHex = start > 0 && bytes[start - 1] === 0x3c; // '<'
-  if (isHex) {
+function blankRange(bytes: Uint8Array, start: number, end: number, kind: "literal" | "hex"): void {
+  if (kind === "hex") {
     for (let i = start; i < end; i++) {
       bytes[i] = (i - start) % 2 === 0 ? 0x32 /* '2' */ : 0x30 /* '0' */;
     }
