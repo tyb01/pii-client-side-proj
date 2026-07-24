@@ -47,11 +47,24 @@ export function redactPageTextInPlace(
 
   // Build the reconstructed "safe" text for this page (unsafe-font operands
   // contribute nothing, so they can never accidentally bridge or match).
+  //
+  // A single separator character is inserted BETWEEN events (not between
+  // operands within the same event): a `TJ` array's multiple string
+  // operands are typically kerning-split pieces of one word/line (no gap
+  // wanted there), while separate events (separate Tj/TJ/'/") more often
+  // correspond to a new line — e.g. a wrapped multi-line field like
+  // "Hannah Whitmore, MD, FRCSC" / "(Gynecologic Oncology)", which pdf.js's
+  // OWN text extraction (the source of `entity.text`) already joins with a
+  // space or newline. Without this, an entity spanning such a wrap could
+  // never be found here at all (its target string has a whitespace
+  // character with nothing corresponding to it in the raw concatenation),
+  // permanently forcing it into the box+rasterize fallback.
   const operands: StringOperand[] = [];
   const operandTextStart: number[] = [];
   let reconstructed = "";
 
   for (const event of events) {
+    if (reconstructed.length > 0) reconstructed += " ";
     for (const operand of event.strings) {
       const isSafe = !(operand.fontName && unsafeFontNames.has(operand.fontName));
       const text = isSafe ? latin1Decode(operand.bytes) : "";
@@ -61,16 +74,23 @@ export function redactPageTextInPlace(
     }
   }
 
+  // Whitespace-flexible search: pdf.js may have joined the same two runs
+  // with a plain space OR a newline (its choice, based on `hasEOL`), and our
+  // own event-boundary separator above is always a plain space — rather
+  // than guess which exact character to match, collapse any whitespace run
+  // in the target to "one or more whitespace" when searching.
   const matchedRanges: { start: number; end: number }[] = [];
   const targetsFound = new Set<string>();
   for (const target of uniqueTargets) {
-    let searchFrom = 0;
-    for (;;) {
-      const idx = reconstructed.indexOf(target, searchFrom);
-      if (idx === -1) break;
-      matchedRanges.push({ start: idx, end: idx + target.length });
+    const re = buildFlexibleTargetRegex(target);
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(reconstructed)) !== null) {
+      if (m[0].length === 0) {
+        re.lastIndex += 1;
+        continue;
+      }
+      matchedRanges.push({ start: m.index, end: m.index + m[0].length });
       targetsFound.add(target);
-      searchFrom = idx + 1;
     }
   }
 
@@ -89,25 +109,20 @@ export function redactPageTextInPlace(
     const overlapping = matchedRanges.filter((r) => opStart < r.end && opEnd > r.start);
     if (overlapping.length === 0) return;
 
-    const mapCharToByte = charToByteMapper(operand);
-    if (!mapCharToByte) {
-      // Escapes (literal strings) or embedded whitespace (hex strings)
-      // break the simple 1:1 character-to-byte mapping needed to blank just
-      // the matched substring — fall back to the whole operand rather than
-      // risk computing the wrong byte range.
-      blankRange(patched, operand.range.start, operand.range.end, operand.range.kind);
-      anyBlanked = true;
-      return;
-    }
-
     // Blank only the matched substring(s) within this operand, not the
     // whole thing — a content stream commonly draws an entire justified
     // line as ONE string operand, so a single matched value inside a long
-    // line must not take the rest of the line down with it.
+    // line must not take the rest of the line down with it. Escape
+    // sequences (`\(`, `\n`, ...) don't force a whole-operand fallback:
+    // `charRawRanges` maps each decoded character to its own exact raw
+    // byte span, escaped or not.
     for (const r of overlapping) {
       const subStart = Math.max(r.start, opStart) - opStart;
       const subEnd = Math.min(r.end, opEnd) - opStart;
-      blankRange(patched, mapCharToByte(subStart), mapCharToByte(subEnd), operand.range.kind);
+      if (subEnd <= subStart) continue;
+      const rawStart = operand.charRawRanges[subStart].start;
+      const rawEnd = operand.charRawRanges[subEnd - 1].end;
+      blankRange(patched, rawStart, rawEnd, operand.range.kind);
     }
     anyBlanked = true;
   });
@@ -118,34 +133,17 @@ export function redactPageTextInPlace(
   return { modified: true, allTargetsMatched: targetsFound.size === uniqueTargets.length };
 }
 
+/** Escapes regex metacharacters, then relaxes any whitespace run to match one-or-more whitespace of any kind. */
+function buildFlexibleTargetRegex(target: string): RegExp {
+  const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const flexible = escaped.replace(/\s+/g, "\\s+");
+  return new RegExp(flexible, "g");
+}
+
 function latin1Decode(bytes: Uint8Array): string {
   let s = "";
   for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
   return s;
-}
-
-/**
- * Returns a function mapping a decoded-character index (within this
- * operand's text) to the corresponding raw byte offset in the content
- * stream — or null if the raw encoding doesn't correspond 1:1 with decoded
- * character positions, in which case the caller can't safely blank a
- * sub-range and must fall back to the whole operand.
- *
- *  - Literal strings: any escape sequence (`\n`, `\(`, an octal escape, ...)
- *    makes the raw byte count differ from the decoded character count, at
- *    which point a simple `range.start + charIndex` offset would land on
- *    the wrong byte.
- *  - Hex strings: whitespace between hex digit pairs (legal per spec) has
- *    the same effect — decoded length no longer tracks raw length/2.
- */
-function charToByteMapper(operand: StringOperand): ((charIndex: number) => number) | null {
-  const rawLength = operand.range.end - operand.range.start;
-  if (operand.range.kind === "literal") {
-    if (rawLength !== operand.bytes.length) return null;
-    return (charIndex) => operand.range.start + charIndex;
-  }
-  if (rawLength !== operand.bytes.length * 2) return null;
-  return (charIndex) => operand.range.start + charIndex * 2;
 }
 
 /** Overwrites content bytes in [start, end) with spaces — for hex strings, with '2','0' pairs so it still decodes as valid hex. */

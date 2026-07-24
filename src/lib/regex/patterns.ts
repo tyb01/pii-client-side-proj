@@ -228,9 +228,14 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
   // Capping at 2 continuations (max 3 words) covers "First Middle Last"
   // while limiting how far a false continuation can reach either way.
   {
+    // The "Last, First" branch used to allow only ONE word after the
+    // comma, so "Beaumont, Diane Rose" (Last, First Middle) matched just
+    // "Beaumont, Diane" and left "Rose" behind. It now allows up to 2
+    // more space-separated continuation words after the first name, same
+    // as the plain space-separated branch below it.
     label: "PATIENT_NAME",
     pattern:
-      /\bPatient(?:\s*Name)?\s*:\s*([A-Z][a-zA-Z'-]*\.?(?:\s*,\s*[A-Z][a-zA-Z'-]*\.?|(?:(?:[ \t]+|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\.?\b(?!\s*:)){1,2}))/g,
+      /\bPatient(?:\s*Name)?\s*:\s*([A-Z][a-zA-Z'-]*\.?(?:\s*,\s*[A-Z][a-zA-Z'-]*\.?(?:(?:[ \t]+|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\.?\b(?!\s*:)){0,2}|(?:(?:[ \t]+|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\.?\b(?!\s*:)){1,2}))/g,
     baseScore: 0.85,
   },
   {

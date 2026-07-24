@@ -25,6 +25,15 @@ export interface StringOperand {
   bytes: Uint8Array;
   /** Name of the font active via the most recent `Tf` operator, or null if none seen yet. */
   fontName: string | null;
+  /**
+   * For decoded byte i, the absolute [start,end) raw byte range in the
+   * original stream that produced it — length 1 normally, but >1 for an
+   * escape sequence (`\(`, `\n`, an octal escape, ...) or a hex digit pair
+   * with embedded whitespace. Lets a caller blank an exact decoded-text
+   * sub-range even when the string contains escapes, instead of only being
+   * able to blank the whole operand.
+   */
+  charRawRanges: { start: number; end: number }[];
 }
 
 const WHITESPACE = new Set([0x00, 0x09, 0x0a, 0x0c, 0x0d, 0x20]);
@@ -40,46 +49,68 @@ function isRegular(b: number): boolean {
   return !isWhitespace(b) && !isDelimiter(b);
 }
 
-/** Decodes a PDF literal string's content bytes (escapes resolved) to raw character codes. */
-function decodeLiteralString(bytes: Uint8Array, start: number, end: number): Uint8Array {
+interface DecodedString {
+  bytes: Uint8Array;
+  /** charRawRanges[i] = absolute [start,end) raw byte span that produced decoded byte i. */
+  charRawRanges: { start: number; end: number }[];
+}
+
+/**
+ * Decodes a PDF literal string's content bytes (escapes resolved) to raw
+ * character codes, tracking exactly which raw byte span produced each
+ * decoded byte — so a caller can blank an exact decoded-text sub-range
+ * later even across escape sequences like `\(`, without having to fall
+ * back to blanking the whole string whenever ANY escape is present (very
+ * common: any literal `(`/`)` in the text, e.g. "(CPS)" or a physician's
+ * "(Anatomic Pathology)", must be escaped per the PDF spec).
+ */
+function decodeLiteralString(bytes: Uint8Array, start: number, end: number): DecodedString {
   const out: number[] = [];
+  const charRawRanges: { start: number; end: number }[] = [];
   let i = start;
   while (i < end) {
     const b = bytes[i];
     if (b === 0x5c /* backslash */ && i + 1 < end) {
+      const charStart = i;
       const next = bytes[i + 1];
       switch (next) {
         case 0x6e: // n
           out.push(0x0a);
           i += 2;
+          charRawRanges.push({ start: charStart, end: i });
           break;
         case 0x72: // r
           out.push(0x0d);
           i += 2;
+          charRawRanges.push({ start: charStart, end: i });
           break;
         case 0x74: // t
           out.push(0x09);
           i += 2;
+          charRawRanges.push({ start: charStart, end: i });
           break;
         case 0x62: // b
           out.push(0x08);
           i += 2;
+          charRawRanges.push({ start: charStart, end: i });
           break;
         case 0x66: // f
           out.push(0x0c);
           i += 2;
+          charRawRanges.push({ start: charStart, end: i });
           break;
         case 0x28: // (
         case 0x29: // )
         case 0x5c: // backslash
           out.push(next);
           i += 2;
+          charRawRanges.push({ start: charStart, end: i });
           break;
         case 0x0a:
-          i += 2; // line continuation, no output
+          i += 2; // line continuation, no output — no char produced, so no range pushed
           break;
         case 0x0d:
-          i += bytes[i + 2] === 0x0a ? 3 : 2;
+          i += bytes[i + 2] === 0x0a ? 3 : 2; // same: no output
           break;
         default:
           if (next >= 0x30 && next <= 0x37) {
@@ -94,34 +125,44 @@ function decodeLiteralString(bytes: Uint8Array, start: number, end: number): Uin
             }
             out.push(val & 0xff);
             i = j;
+            charRawRanges.push({ start: charStart, end: i });
           } else {
             out.push(next);
             i += 2;
+            charRawRanges.push({ start: charStart, end: i });
           }
       }
     } else {
       out.push(b);
       i += 1;
+      charRawRanges.push({ start: i - 1, end: i });
     }
   }
-  return Uint8Array.from(out);
+  return { bytes: Uint8Array.from(out), charRawRanges };
 }
 
-function decodeHexString(bytes: Uint8Array, start: number, end: number): Uint8Array {
-  const digits: number[] = [];
+function decodeHexString(bytes: Uint8Array, start: number, end: number): DecodedString {
+  const digitPositions: number[] = [];
   for (let i = start; i < end; i++) {
     const b = bytes[i];
     const isHexDigit = (b >= 0x30 && b <= 0x39) || (b >= 0x41 && b <= 0x46) || (b >= 0x61 && b <= 0x66);
-    if (isHexDigit) digits.push(b);
+    if (isHexDigit) digitPositions.push(i);
   }
-  if (digits.length % 2 === 1) digits.push(0x30); // trailing odd digit padded with 0, per spec
-  const out = new Uint8Array(digits.length / 2);
+  const padded = digitPositions.length % 2 === 1 ? [...digitPositions, -1] : digitPositions;
+
+  const out = new Uint8Array(padded.length / 2);
+  const charRawRanges: { start: number; end: number }[] = [];
   for (let i = 0; i < out.length; i++) {
-    const hi = parseInt(String.fromCharCode(digits[i * 2]), 16);
-    const lo = parseInt(String.fromCharCode(digits[i * 2 + 1]), 16);
+    const p1 = padded[i * 2];
+    const p2 = padded[i * 2 + 1];
+    const hi = parseInt(String.fromCharCode(bytes[p1]), 16);
+    const lo = p2 === -1 ? 0 : parseInt(String.fromCharCode(bytes[p2]), 16); // trailing odd digit padded with 0, per spec
     out[i] = hi * 16 + lo;
+    // Spans from the first digit to just past the second — covers any
+    // whitespace legally interspersed between the two digits of a pair too.
+    charRawRanges.push({ start: p1, end: (p2 === -1 ? p1 : p2) + 1 });
   }
-  return out;
+  return { bytes: out, charRawRanges };
 }
 
 type Operand =
@@ -308,7 +349,7 @@ function toStringOperand(bytes: Uint8Array, range: ByteRange, fontName: string |
     range.kind === "literal"
       ? decodeLiteralString(bytes, range.start, range.end)
       : decodeHexString(bytes, range.start, range.end);
-  return { range, bytes: decoded, fontName };
+  return { range, bytes: decoded.bytes, charRawRanges: decoded.charRawRanges, fontName };
 }
 
 function findKeyword(bytes: Uint8Array, from: number, keyword: string): number {

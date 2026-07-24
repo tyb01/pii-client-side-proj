@@ -1,17 +1,21 @@
 import { loadPdfDocument, extractPageText } from "@/lib/pdf/extract";
 
 /**
- * Re-extracts text from the (already redacted) PDF bytes and checks whether
- * any target PII string is still recoverable, per page. This is the actual
- * proof that redaction worked — not an assumption. Any page that fails is
- * expected to be rasterized as a fallback by the caller.
+ * Re-extracts text from the (already redacted) PDF bytes and checks, per
+ * page, exactly which target values are still recoverable — not just
+ * whether the page has ANY residual text. This is what lets the caller box
+ * only the specific entities that byte-level surgery actually failed to
+ * remove, rather than treating every entity on a page as failed just
+ * because one of them was (surgery can succeed for most values on a page
+ * and fail for a few, e.g. one field using a font the surgery pass can't
+ * safely decode).
  */
-export async function findPagesWithResidualText(
+export async function findResidualValuesByPage(
   pdfBytes: Uint8Array,
   targetValuesByPage: Map<number, string[]>
-): Promise<Set<number>> {
+): Promise<Map<number, Set<string>>> {
   const pdf = await loadPdfDocument(pdfBytes.slice());
-  const residualPages = new Set<number>();
+  const residualByPage = new Map<number, Set<string>>();
 
   for (const [pageNum, values] of targetValuesByPage) {
     if (pageNum < 1 || pageNum > pdf.numPages) continue;
@@ -19,10 +23,9 @@ export async function findPagesWithResidualText(
     if (uniqueValues.length === 0) continue;
 
     const { text } = await extractPageText(pdf, pageNum);
-    if (uniqueValues.some((value) => text.includes(value))) {
-      residualPages.add(pageNum);
-    }
+    const found = new Set(uniqueValues.filter((value) => text.includes(value)));
+    if (found.size > 0) residualByPage.set(pageNum, found);
   }
 
-  return residualPages;
+  return residualByPage;
 }

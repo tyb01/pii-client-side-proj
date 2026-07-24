@@ -1,7 +1,7 @@
 import { PDFDocument, PDFPage, rgb } from "pdf-lib";
 import type { Entity, PdfRect } from "@/lib/types";
 import { redactPageTextInPlace } from "./pdfTextSurgery";
-import { findPagesWithResidualText } from "./verifyRedaction";
+import { findResidualValuesByPage } from "./verifyRedaction";
 import { renderPageAsPng, rasterizePageInPlace } from "./pdfRasterize";
 
 const RECT_PADDING_PTS = 1.5;
@@ -12,21 +12,6 @@ export interface RedactedPdfResult {
   verified: boolean;
   /** Pages that couldn't be safely handled by text-stream surgery and were rasterized instead. */
   rasterizedPages: number[];
-}
-
-function unionRect(rects: PdfRect[]): PdfRect | null {
-  if (rects.length === 0) return null;
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const r of rects) {
-    minX = Math.min(minX, r.x);
-    minY = Math.min(minY, r.y);
-    maxX = Math.max(maxX, r.x + r.width);
-    maxY = Math.max(maxY, r.y + r.height);
-  }
-  return { page: rects[0].page, x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
 function drawRedactionBox(page: PDFPage, rect: PdfRect): void {
@@ -47,13 +32,15 @@ function drawRedactionBox(page: PDFPage, rect: PdfRect): void {
  *     pdfTextSurgery.ts) so the original glyphs are never drawn at all —
  *     a best-effort pass, safe for the common case of simple/standard-
  *     encoded fonts.
- *  2. Re-extract the result with pdf.js and check whether any target
- *     string is still recoverable, page by page.
- *  3. Any page that still fails gets a black box drawn over the
- *     still-present entities — the ONLY place a box is ever drawn, purely
- *     to hide pixels the byte-level surgery couldn't reach — and is then
- *     rasterized to a flattened image, so nothing can be extracted or
- *     read off it at all.
+ *  2. Re-extract the result with pdf.js and check exactly which target
+ *     values are still recoverable, per page — surgery can succeed for
+ *     most entities on a page and fail for only one or two (e.g. a field
+ *     using a font this pass can't safely decode), so this is checked per
+ *     VALUE, not just per page.
+ *  3. Any page with residual values gets a black box drawn only over the
+ *     entities whose value is still actually recoverable — never over
+ *     entities surgery already removed — and is then rasterized to a
+ *     flattened image, so nothing can be extracted or read off it at all.
  *
  * `verified` reflects a final re-check after step 3 and should always be
  * true; it's returned so the caller can surface an honest result either way
@@ -98,20 +85,24 @@ export async function buildRedactedPdf(
   const targetsByPage = new Map<number, string[]>();
   for (const [pageNum, list] of entitiesByPage) targetsByPage.set(pageNum, list.map((e) => e.text));
 
-  let residualPages = await findPagesWithResidualText(bytes, targetsByPage);
+  let residualByPage = await findResidualValuesByPage(bytes, targetsByPage);
   const rasterizedPages: number[] = [];
 
-  if (residualPages.size > 0) {
-    for (const pageNum of residualPages) {
+  if (residualByPage.size > 0) {
+    for (const [pageNum, residualValues] of residualByPage) {
       const page = pages[pageNum - 1];
       if (!page) continue;
 
-      // Surgery didn't fully blank this page's text, so the original
-      // glyphs are still drawn — cover them before rendering so the
-      // flattened image below never captures readable PII pixels.
+      // Surgery didn't fully blank these SPECIFIC entities on this page —
+      // cover only them before rendering, so the flattened image below
+      // never captures readable PII pixels. Entities whose value isn't in
+      // `residualValues` were already successfully blanked and get no box.
+      // One box per rect (not a single bounding box across all of them):
+      // an entity spanning a line wrap has one rect per line, and unioning
+      // those would draw one oversized box across everything in between.
       for (const entity of entitiesByPage.get(pageNum) ?? []) {
-        const rect = unionRect(entity.rects);
-        if (rect) drawRedactionBox(page, rect);
+        if (!residualValues.has(entity.text.trim())) continue;
+        for (const rect of entity.rects) drawRedactionBox(page, rect);
       }
 
       const preRasterBytes = await pdfDoc.save();
@@ -120,8 +111,8 @@ export async function buildRedactedPdf(
       rasterizedPages.push(pageNum);
     }
     bytes = await pdfDoc.save();
-    residualPages = await findPagesWithResidualText(bytes, targetsByPage);
+    residualByPage = await findResidualValuesByPage(bytes, targetsByPage);
   }
 
-  return { bytes, verified: residualPages.size === 0, rasterizedPages };
+  return { bytes, verified: residualByPage.size === 0, rasterizedPages };
 }
