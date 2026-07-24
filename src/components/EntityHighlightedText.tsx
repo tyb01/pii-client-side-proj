@@ -111,7 +111,7 @@ export default function EntityHighlightedText({ text, entities, onToggleEntity, 
               className={`cursor-pointer rounded px-0.5 ${
                 seg.entity!.accepted
                   ? SOURCE_STYLES[seg.entity!.source]
-                  : "bg-transparent text-gray-400 line-through decoration-2 dark:text-gray-600"
+                  : "bg-transparent text-gray-400 dark:text-gray-600"
               }`}
             >
               {seg.value}
