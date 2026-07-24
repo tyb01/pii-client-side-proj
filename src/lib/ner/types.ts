@@ -1,6 +1,6 @@
 import type { EntityDraft } from "@/lib/regex/recognize";
 
-export type NerBackendId = "gliner" | "piiranha" | "distilbert";
+export type NerBackendId = "gliner" | "distilbert";
 
 export interface NerLoadProgress {
   /** 0-100, or undefined when the backend can't report granular progress. */

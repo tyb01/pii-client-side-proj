@@ -132,10 +132,6 @@ export default function Home() {
     <div className="mx-auto w-full max-w-4xl flex-1 px-6 py-10">
       <header className="mb-8">
         <h1 className="text-2xl font-bold">Client-side PII Redaction</h1>
-        <p className="text-gray-500 dark:text-gray-400">
-          Everything below — text extraction, OCR, and entity detection — runs entirely in this
-          browser tab. No document content is ever sent anywhere.
-        </p>
       </header>
 
       {error && (
@@ -157,6 +153,7 @@ export default function Home() {
             fileName={result.fileName}
             pages={result.pages}
             entities={entities}
+            originalBytes={result.originalBytes}
             onToggleEntity={handleToggleEntity}
             onAddManualEntity={handleAddManualEntity}
             onExportText={handleExportText}

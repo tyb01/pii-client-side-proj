@@ -5,7 +5,6 @@
 export type EntitySource =
   | "regex"
   | "ner-gliner"
-  | "ner-piiranha"
   | "ner-distilbert"
   | "manual";
 

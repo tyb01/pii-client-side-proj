@@ -116,7 +116,7 @@ export function createTransformersBackend(config: TransformersBackendConfig): Ne
           text: text.slice(span.start, span.end),
           label: normalizeLabel(config.labelMap, r.entity_group),
           score: r.score,
-          source: config.id === "piiranha" ? "ner-piiranha" : "ner-distilbert",
+          source: "ner-distilbert",
         });
       }
       return out;
@@ -124,56 +124,20 @@ export function createTransformersBackend(config: TransformersBackendConfig): Ne
   };
 }
 
-export const piiranhaBackend = createTransformersBackend({
-  id: "piiranha",
-  label: "Piiranha (PII-specific)",
-  description: "DeBERTa-based, trained specifically on PII across 17 entity types. Good balance of size/recall.",
-  modelRepo: "onnx-community/piiranha-v1-detect-personal-information-ONNX",
-  // Fixed, not hasWebGPU()-branched — see comment on glinerBackend's approxSizeMb.
-  approxSizeMb: 317,
-  recommendedFor: "any",
-  threshold: 0.5,
-  // KNOWN ISSUE (unresolved, investigation paused): at the default q8
-  // dtype, this model's raw per-token predictions come back "O" (not-PII)
-  // for every single token — even on its own HF model-card demo sentence
-  // ("My name is Sarah and I live in London.") — so almost nothing gets
-  // detected regardless of threshold. Not yet confirmed whether a
-  // different dtype (fp32 is ~1.15GB, untested) fixes it or whether the
-  // issue is elsewhere in this ONNX export. Treat this backend's results
-  // as unreliable until that's resolved.
-  labelMap: {
-    ACCOUNTNUM: "ACCOUNT_NUMBER",
-    BUILDINGNUM: "BUILDING_NUMBER",
-    CITY: "CITY",
-    CREDITCARDNUMBER: "CREDIT_CARD",
-    DATEOFBIRTH: "DATE_OF_BIRTH",
-    DRIVERLICENSENUM: "LICENSE_NUMBER",
-    EMAIL: "EMAIL_ADDRESS",
-    GIVENNAME: "PERSON_GIVEN_NAME",
-    IDCARDNUM: "ID_CARD_NUMBER",
-    PASSWORD: "PASSWORD",
-    SOCIALNUM: "SSN",
-    STREET: "STREET_ADDRESS",
-    SURNAME: "PERSON_SURNAME",
-    TAXNUM: "TAX_ID",
-    TELEPHONENUM: "PHONE_NUMBER",
-    USERNAME: "USERNAME",
-    ZIPCODE: "ZIP_CODE",
-  },
-});
-
 export const distilbertBackend = createTransformersBackend({
   id: "distilbert",
   label: "DistilBERT NER (fast fallback)",
-  description: "Small, fast, runs everywhere. Only detects person/org/location/date — lean on regex + review for the rest.",
+  description: "Small, fast, runs everywhere. Only detects person/org/location/misc — lean on regex + review for the rest.",
   modelRepo: "Xenova/distilbert-base-multilingual-cased-ner-hrl",
   approxSizeMb: 135,
   recommendedFor: "wasm",
   threshold: 0.6,
+  // CoNLL-style 4-class scheme — this checkpoint doesn't emit anything
+  // outside these four groups, so the map is exhaustive, not partial.
   labelMap: {
     PER: "PERSON",
     ORG: "ORGANIZATION",
     LOC: "LOCATION",
-    DATE: "DATE",
+    MISC: "MISC",
   },
 });

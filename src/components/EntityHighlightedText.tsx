@@ -7,7 +7,6 @@ import { getTextOffsetWithinContainer } from "@/lib/textOffset";
 const SOURCE_STYLES: Record<Entity["source"], string> = {
   regex: "bg-blue-200 dark:bg-blue-900/60",
   "ner-gliner": "bg-purple-200 dark:bg-purple-900/60",
-  "ner-piiranha": "bg-orange-200 dark:bg-orange-900/60",
   "ner-distilbert": "bg-green-200 dark:bg-green-900/60",
   manual: "bg-red-200 dark:bg-red-900/60",
 };
@@ -107,7 +106,7 @@ export default function EntityHighlightedText({ text, entities, onToggleEntity, 
               key={i}
               onClick={() => onToggleEntity(seg.entity!.id)}
               title={`${seg.entity!.label} · ${(seg.entity!.score * 100).toFixed(0)}% · ${seg.entity!.source}${
-                seg.entity!.accepted ? "" : " (rejected — click to restore)"
+                seg.entity!.accepted ? "" : " (rejected - click to restore)"
               }`}
               className={`cursor-pointer rounded px-0.5 ${
                 seg.entity!.accepted

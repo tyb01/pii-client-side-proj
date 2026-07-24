@@ -1,11 +1,10 @@
 import { glinerBackend } from "./glinerBackend";
-import { piiranhaBackend, distilbertBackend } from "./transformersBackend";
+import { distilbertBackend } from "./transformersBackend";
 import { hasWebGPU } from "./webgpu";
 import type { NerBackend, NerBackendId } from "./types";
 
 export const NER_BACKENDS: Record<NerBackendId, NerBackend> = {
   gliner: glinerBackend,
-  piiranha: piiranhaBackend,
   distilbert: distilbertBackend,
 };
 

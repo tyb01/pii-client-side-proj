@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { NER_BACKEND_LIST, getRecommendedBackendId, canUseWebGPU, type NerBackendId } from "@/lib/ner";
+import { NER_BACKEND_LIST, getRecommendedBackendId, type NerBackendId } from "@/lib/ner";
 
 interface Props {
   onStart: (file: File, nerBackendId: NerBackendId | null) => void;
@@ -11,15 +11,14 @@ interface Props {
 export default function UploadPanel({ onStart, disabled }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [nerBackendId, setNerBackendId] = useState<NerBackendId | null>(null);
-  const [webgpu, setWebgpu] = useState(false);
   const [recommended, setRecommended] = useState<NerBackendId | null>(null);
 
-  // WebGPU detection depends on `navigator`, which doesn't exist during SSR.
-  // This is the sanctioned exception to "don't setState in an effect": there
-  // is no server-computable value here, so an effect-after-mount is the only
-  // way to read it without diverging from the SSR-rendered HTML.
+  // `getRecommendedBackendId` depends on `navigator.gpu`, which doesn't
+  // exist during SSR. This is the sanctioned exception to "don't setState in
+  // an effect": there is no server-computable value here, so an
+  // effect-after-mount is the only way to read it without diverging from
+  // the SSR-rendered HTML.
   useEffect(() => {
-    canUseWebGPU().then(setWebgpu);
     const rec = getRecommendedBackendId();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- same as above
     setRecommended(rec);
@@ -31,7 +30,7 @@ export default function UploadPanel({ onStart, disabled }: Props) {
       <div>
         <h2 className="mb-1 font-semibold">1. Choose a PDF</h2>
         <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
-          Digital or scanned — scanned pages are OCR&apos;d automatically. Nothing leaves your device.
+          Digital or scanned - scanned pages are OCR&apos;d automatically. Nothing leaves your device.
         </p>
         <input
           type="file"
@@ -42,12 +41,6 @@ export default function UploadPanel({ onStart, disabled }: Props) {
       </div>
 
       <div>
-        <h2 className="mb-1 font-semibold">2. Names / locations / orgs model</h2>
-        <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
-          Structured PII (SSN, phone, email, dates…) is always caught by regex regardless of this
-          choice. This model catches names, hospitals, and free-text PII.{" "}
-          {webgpu ? "WebGPU detected — GPU-accelerated inference available." : "No WebGPU — models run on WASM (slower)."}
-        </p>
         <div className="space-y-2">
           <label className="flex cursor-pointer items-start gap-3 rounded-md border border-gray-200 p-3 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800">
             <input
@@ -58,7 +51,7 @@ export default function UploadPanel({ onStart, disabled }: Props) {
               className="mt-1"
             />
             <span>
-              <span className="block font-medium">None — regex only</span>
+              <span className="block font-medium">None - regex only</span>
               <span className="block text-xs text-gray-500 dark:text-gray-400">
                 Instant, no download. Misses free-text names/orgs; relies entirely on the review screen for those.
               </span>

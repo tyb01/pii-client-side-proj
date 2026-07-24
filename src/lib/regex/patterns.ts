@@ -1,4 +1,6 @@
 import { passesLuhn } from "./luhn";
+import { isValidSsnStructure } from "./ssnValidate";
+import { hasSubstantialAccessionSuffix } from "./accessionValidate";
 
 export interface RegexRecognizer {
   label: string;
@@ -35,11 +37,21 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     baseScore: 0.9,
   },
   {
+    // Scheme-less domains ("www.example.com") are common in printed reports
+    // (letterhead, footers) but not covered by the scheme-required pattern
+    // above. Restricted to a `www.` prefix (rather than matching any bare
+    // TLD-looking word) to avoid flagging ordinary abbreviations/filenames.
+    label: "URL",
+    pattern: /\bwww\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?:\/[^\s<>"')\]]*)?/gi,
+    baseScore: 0.8,
+  },
+  {
     label: "SSN",
     pattern: /\b\d{3}-\d{2}-\d{4}\b/g,
     baseScore: 0.85,
     contextWords: ["ssn", "social security"],
     contextWindow: 30,
+    validate: isValidSsnStructure,
   },
   {
     label: "SSN",
@@ -49,6 +61,7 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     contextWords: ["ssn", "social security"],
     contextWindow: 30,
     requiresContext: true,
+    validate: isValidSsnStructure,
   },
   {
     label: "CREDIT_CARD",
@@ -108,10 +121,88 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
   {
     // Radiology/imaging reports identify the study by accession number the
     // same way encounters use an MRN — same PII sensitivity, same treatment.
+    // "Accession" no longer requires a No./Number/# qualifier ("Path
+    // Accession S22-014728" has none), and "Path Accession" is matched
+    // directly since "Path" alone isn't a safe generic trigger word.
     label: "ACCESSION_NUMBER",
     pattern:
-      /(?:\bAccession\s*(?:No\.?|Number|#)|\bAcc\.?\s*#)\s*[:#-]?\s*([A-Z0-9-]{5,15})\b/gi,
+      /(?:\bPath\s+Accession\b|\bAccession\s*(?:No\.?|Number|#)?|\bAcc\.?\s*#)\s*[:#-]?\s*([A-Z0-9-]{5,20})\b/gi,
     baseScore: 0.9,
+  },
+  {
+    // Value-shape fallback: institution accession/study codes (e.g.
+    // "RAD22-MR-02219", "LAB22-338207") often sit next to a label word
+    // ("Imaging", a bare section header, ...) too generic to safely trigger
+    // on by itself. The shape — short uppercase prefix + 2-digit year +
+    // 1-3 hyphenated alphanumeric groups — is distinctive enough to catch
+    // on its own. Requires digits immediately after the letters, so it
+    // doesn't collide with hyphen-prefixed IDs like "HRC-0447192" (MRN).
+    label: "ACCESSION_NUMBER",
+    pattern: /\b[A-Z]{1,4}\d{2}(?:-[A-Z0-9]{1,6}){1,3}\b/g,
+    baseScore: 0.6,
+    validate: hasSubstantialAccessionSuffix,
+  },
+  {
+    label: "AGE",
+    pattern: /\bAge\s*:\s*(\d{1,3})\b/gi,
+    baseScore: 0.6,
+  },
+  {
+    // Combined "DOB / Age / Sex: 1969-03-14 / 53 / Female" header — the age
+    // value has no label of its own, so the preceding date+slash is matched
+    // as non-captured context to anchor position (single-capture-group
+    // architecture can't pull all three fields out of one match).
+    label: "AGE",
+    pattern: /\bDOB\s*\/\s*Age\s*\/\s*Sex\s*:?\s*[\d/-]+\s*\/\s*(\d{1,3})\b/gi,
+    baseScore: 0.7,
+  },
+  {
+    label: "GENDER",
+    pattern: /\b(?:Gender|Sex)\s*:\s*(Male|Female|M|F|Other|Non-binary)\b/gi,
+    baseScore: 0.6,
+  },
+  {
+    label: "GENDER",
+    pattern:
+      /\bDOB\s*\/\s*Age\s*\/\s*Sex\s*:?\s*[\d/-]+\s*\/\s*\d{1,3}\s*\/\s*(Male|Female|M|F|Other|Non-binary)\b/gi,
+    baseScore: 0.7,
+  },
+  {
+    label: "ADDRESS",
+    pattern:
+      /(?:\bHome\s+Address\b|\bMailing\s+Address\b|\bAddress\b)\s*:\s*([A-Za-z0-9][^\n]{4,80})/gi,
+    baseScore: 0.6,
+  },
+  {
+    label: "TIME_OF_DAY",
+    // Combined with a DATE match immediately before it in report headers
+    // ("2022-10-15 11:40"), but kept as its own entity/pattern rather than
+    // folded into DATE's capture group.
+    pattern: /\b([01]?\d|2[0-3]):[0-5]\d\b/g,
+    baseScore: 0.45,
+  },
+  {
+    label: "FACILITY_NAME",
+    // Capped leading run of capitalized words (1-4) so this can't sweep up
+    // an entire preceding sentence before hitting a facility-type suffix.
+    pattern: /\b(?:[A-Z][a-zA-Z]*\s+){1,4}(?:Centre|Center|Hospital|Clinic)\b/g,
+    baseScore: 0.55,
+  },
+  {
+    label: "FACILITY_NAME",
+    pattern:
+      /\bDepartment\s+of\s+[A-Z][a-zA-Z]+(?:\s*(?:&|and)\s*[A-Z][a-zA-Z]+)*(?:\s+Medicine)?\b/g,
+    baseScore: 0.5,
+  },
+  {
+    // Trailing credential/specialty block after a physician's name, e.g.
+    // "Priya Raman, MD, FRCPC (Medical Oncology)" — PHYSICIAN_NAME
+    // deliberately stops before this (see its comment), so this is a
+    // separate entity covering just the credentials portion.
+    label: "PHYSICIAN_CREDENTIALS",
+    pattern:
+      /\b(?:MD|DO|RN|NP)\s*,\s*[A-Z]{2,8}(?:\s*\(\s*[A-Z][a-zA-Z]+(?:\s+[A-Z&][a-zA-Z]*)*\s*\))?/g,
+    baseScore: 0.55,
   },
   // Names are unstructured, so NER is the primary way to catch them — but a
   // clearly labeled field ("Patient:", "Referring Physician:", ...) is a
@@ -152,7 +243,7 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     // form they actually appear in on real reports; "cc" stays lowercase.
     // See the PATIENT_NAME comment above for the continuation-word guards.
     pattern:
-      /(?:\bReferring\s*\/?\s*Family\s*MD\b|\bReferring\s+Physician\b|\bOrdering\s+Physician\b|\bAttending\s+Physician\b|\bRadiologist\b|\bPathologist\b|\bElectronically\s+[Ss]igned\s+[Bb]y\b|\bSigned\s+by\b|\bcc\b|\bNurse\b)\s*:?\s*(?:Dr\.?\s+)?([A-Z][a-zA-Z'-]*\.?(?:(?:[ \t]+|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\.?\b(?!\s*:)){1,2})/g,
+      /(?:\bReferring\s*\/?\s*Family\s*MD\b|\bReferring\s+Physician\b|\bOrdering\s+Physician\b|\bAttending\s+Physician\b|\bReading\s+Radiologist\b|\bRadiologist\b|\bPathologist\b|\bElectronically\s+[Ss]igned(?:\s+[Bb]y)?\b|\bSigned\s+by\b|\bcc\b|\bNurse\b)\s*:?\s*(?:Dr\.?\s+)?([A-Z][a-zA-Z'-]*\.?(?:(?:[ \t]+|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\.?\b(?!\s*:)){1,2})/g,
     baseScore: 0.85,
   },
 ];

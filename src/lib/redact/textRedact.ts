@@ -1,5 +1,4 @@
 import type { Entity } from "@/lib/types";
-import { buildPlaceholderMap, placeholderKeyFor } from "./placeholderMap";
 
 export interface RedactedPage {
   page: number;
@@ -13,19 +12,14 @@ export interface RedactedDocument {
 }
 
 /**
- * Replaces accepted entity spans with placeholders like [PATIENT_NAME_1].
- * The SAME normalized (label + lowercased text) entity gets the SAME
- * placeholder everywhere it appears in the document (see placeholderMap.ts
- * — the visually-redacted PDF's on-page labels use the exact same mapping),
- * so a downstream LLM can still track "the same person" across pages
- * without ever seeing the real value.
+ * Deletes accepted entity spans outright — no placeholder token is left in
+ * their place, just the surrounding text closed up. Nothing about the
+ * redacted value (not even its label or that two mentions were the same
+ * person) survives into this artifact.
  */
 export function buildRedactedDocument(
   pages: { page: number; text: string; entities: Entity[] }[]
 ): RedactedDocument {
-  const allEntities = pages.flatMap((p) => p.entities);
-  const placeholderByKey = buildPlaceholderMap(allEntities);
-
   const redactedPages: RedactedPage[] = pages.map(({ page, text, entities }) => {
     const accepted = [...entities]
       .filter((e) => e.accepted)
@@ -36,7 +30,6 @@ export function buildRedactedDocument(
     for (const entity of accepted) {
       if (entity.start < cursor) continue; // overlapping with a previously applied entity
       result += text.slice(cursor, entity.start);
-      result += placeholderByKey.get(placeholderKeyFor(entity)) ?? `[${entity.label}]`;
       cursor = entity.end;
     }
     result += text.slice(cursor);

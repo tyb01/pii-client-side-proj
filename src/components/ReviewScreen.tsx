@@ -1,12 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import type { Entity, ExtractedPage } from "@/lib/types";
 import EntityHighlightedText from "./EntityHighlightedText";
+import PdfPreview from "./PdfPreview";
 
 const LEGEND: { source: Entity["source"]; label: string; swatch: string }[] = [
   { source: "regex", label: "Regex / checksum", swatch: "bg-blue-200 dark:bg-blue-900" },
   { source: "ner-gliner", label: "GLiNER (zero-shot)", swatch: "bg-purple-200 dark:bg-purple-900" },
-  { source: "ner-piiranha", label: "Piiranha", swatch: "bg-orange-200 dark:bg-orange-900" },
   { source: "ner-distilbert", label: "DistilBERT", swatch: "bg-green-200 dark:bg-green-900" },
   { source: "manual", label: "Manual", swatch: "bg-red-200 dark:bg-red-900" },
 ];
@@ -20,6 +21,7 @@ interface Props {
   fileName: string;
   pages: ExtractedPage[];
   entities: Entity[];
+  originalBytes: ArrayBuffer;
   onToggleEntity: (id: string) => void;
   onAddManualEntity: (page: number, start: number, end: number, text: string) => void;
   onExportText: () => void;
@@ -32,6 +34,7 @@ export default function ReviewScreen({
   fileName,
   pages,
   entities,
+  originalBytes,
   onToggleEntity,
   onAddManualEntity,
   onExportText,
@@ -39,6 +42,7 @@ export default function ReviewScreen({
   exportingPdf,
   pdfExportStatus,
 }: Props) {
+  const [showPreview, setShowPreview] = useState(true);
   const acceptedCount = entities.filter((e) => e.accepted).length;
   const byLabel = new Map<string, number>();
   for (const e of entities) {
@@ -68,6 +72,12 @@ export default function ReviewScreen({
         </div>
         <div className="flex flex-col items-end gap-1.5">
           <div className="flex gap-2">
+            <button
+              onClick={() => setShowPreview((v) => !v)}
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-800"
+            >
+              {showPreview ? "Hide PDF preview" : "Preview PDF"}
+            </button>
             <button
               onClick={onExportText}
               className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"
@@ -113,6 +123,15 @@ export default function ReviewScreen({
           Click a highlight to toggle it · select text to add a manual redaction
         </span>
       </div>
+
+      {showPreview && (
+        <div className="space-y-1">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Live preview of the redacted PDF - updates automatically as you toggle or add redactions below.
+          </p>
+          <PdfPreview originalBytes={originalBytes} entities={entities} />
+        </div>
+      )}
 
       {pages.map((page) => {
         const pageEntities = entities.filter((e) => e.page === page.page);
