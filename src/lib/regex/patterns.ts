@@ -49,7 +49,7 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     label: "SSN",
     pattern: /\b\d{3}-\d{2}-\d{4}\b/g,
     baseScore: 0.85,
-    contextWords: ["ssn", "social security"],
+    contextWords: ["ssn", "social security",  "ssn#", "soc sec"],
     contextWindow: 30,
     validate: isValidSsnStructure,
   },
@@ -58,7 +58,7 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     // Bare 9-digit SSNs are indistinguishable from other IDs without context.
     pattern: /\b\d{9}\b/g,
     baseScore: 0.4,
-    contextWords: ["ssn", "social security"],
+    contextWords: ["ssn", "social security",  "ssn#", "soc sec"],
     contextWindow: 30,
     requiresContext: true,
     validate: isValidSsnStructure,
@@ -105,20 +105,23 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     // positioned run) — a plain [A-Z0-9-]{5,15} character class doesn't
     // include spaces, so it silently cut off after just "MT" and missed
     // the value entirely. Segmented form covers both spaced and unspaced.
+    // Label alternatives cover common synonyms real reports use for the
+    // same field (MRN / MR#/No / Medical Record (Number/No) / Med Rec# /
+    // Patient ID / Patient Record Number / Chart #/No / Hospital Number).
     pattern:
-      /(?:\bMRN\b|\bMR\s*#|\bMedical\s+Record(?:\s+Number)?\b|\bPatient\s+ID\b|\bChart\s*#)\s*[:#-]?\s*([A-Z0-9]{2,10}(?:\s*-\s*[A-Z0-9]{1,10}){0,4})\b/gi,
+      /(?:\bMRN\b|\bMR\s*(?:#|No\.?)|\bMedical\s+Record(?:\s+(?:Number|No\.?))?\b|\bMed\s*Rec\s*#|\bPatient\s+ID\b|\bPatient\s+Record\s+Number\b|\bChart\s*(?:#|No\.?)|\bHosp(?:ital)?\s*(?:Number|No\.?|#))\s*[:#-]?\s*([A-Z0-9]{2,10}(?:\s*-\s*[A-Z0-9]{1,10}){0,4})\b/gi,
     baseScore: 0.9,
   },
   {
     label: "ACCOUNT_NUMBER",
     pattern:
-      /(?:\bAccount\s*(?:No\.?|Number|#)|\bAcct\.?\s*(?:No\.?|#)?)\s*[:#-]?\s*(\d{6,17})\b/gi,
+      /(?:\bAccount\s*(?:No\.?|Number|ID|#)|\bAcct\.?\s*(?:No\.?|#)?|\bBilling\s+Account\s*(?:No\.?|Number|#)?)\s*[:#-]?\s*(\d{6,17})\b/gi,
     baseScore: 0.85,
   },
   {
     label: "LICENSE_NUMBER",
     pattern:
-      /(?:\bDriver'?s?\s+License\b|\bDL\s*#|\bLicense\s*(?:No\.?|Number|#))\s*[:#-]?\s*([A-Z0-9-]{5,15})\b/gi,
+      /(?:\bDriver'?s?\s+License\b|\bDL\s*(?:#|No\.?)|\bLicense\s*(?:No\.?|Number|ID|#))\s*[:#-]?\s*([A-Z0-9-]{5,15})\b/gi,
     baseScore: 0.85,
   },
   {
@@ -127,9 +130,11 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     // "Accession" no longer requires a No./Number/# qualifier ("Path
     // Accession S22-014728" has none), and "Path Accession" is matched
     // directly since "Path" alone isn't a safe generic trigger word.
+    // Study/Case/Specimen Number-ID cover the same field under the label
+    // convention radiology/pathology/lab reports each tend to use instead.
     label: "ACCESSION_NUMBER",
     pattern:
-      /(?:\bPath\s+Accession\b|\bAccession\s*(?:No\.?|Number|#)?|\bAcc\.?\s*#)\s*[:#-]?\s*([A-Z0-9-]{5,20})\b/gi,
+      /(?:\bPath\s+Accession\b|\bAccession\s*(?:No\.?|Number|ID|#)?|\bAcc\.?\s*#|\bStudy\s*(?:No\.?|Number|ID)\b|\bCase\s*(?:No\.?|Number)\b|\bSpecimen\s*(?:No\.?|Number|ID)\b)\s*[:#-]?\s*([A-Z0-9-]{5,20})\b/gi,
     baseScore: 0.9,
   },
   {
@@ -147,7 +152,7 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
   },
   {
     label: "AGE",
-    pattern: /\bAge\s*:\s*(\d{1,3})\b/gi,
+    pattern: /\b(?:Patient\s+)?Age\s*:\s*(\d{1,3})\b/gi,
     baseScore: 0.6,
   },
   {
@@ -161,7 +166,8 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
   },
   {
     label: "GENDER",
-    pattern: /\b(?:Gender|Sex)\s*:\s*(Male|Female|M|F|Other|Non-binary)\b/gi,
+    pattern:
+      /\b(?:Gender|Sex|Sex\s*\/\s*Gender|Patient\s+Sex|Biological\s+Sex)\s*:\s*(Male|Female|M|F|Other|Non-binary)\b/gi,
     baseScore: 0.6,
   },
   {
@@ -173,7 +179,7 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
   {
     label: "ADDRESS",
     pattern:
-      /(?:\bHome\s+Address\b|\bMailing\s+Address\b|\bAddress\b)\s*:\s*([A-Za-z0-9][^\n]{4,80})/gi,
+      /(?:\bHome\s+Address\b|\bMailing\s+Address\b|\bResidential\s+Address\b|\bStreet\s+Address\b|\bPatient\s+Address\b|\bCurrent\s+Address\b|\bAddress\b)\s*:\s*([A-Za-z0-9][^\n]{4,80})/gi,
     baseScore: 0.6,
   },
   {
@@ -268,9 +274,14 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     // ordinary prose ("Patient Jane Doe was examined"). Requiring 2+
     // spaces when there's no colon catches the table case while still
     // rejecting normal sentences starting with "Patient ".
+    // Label alternatives cover "Patient"/"Patient Name"/"Patient's Name"/
+    // "Patient's Full Name"/"Pt Name" — bare "Pt"/"Pt." is deliberately
+    // NOT included: it's a near-universal medical-note abbreviation used
+    // constantly outside of a name-label context ("55 y/o pt presents..."),
+    // so it would false-positive far more than it would ever help.
     label: "PATIENT_NAME",
     pattern:
-      /\bPatient(?:\s*Name)?(?:\s*:\s*|\s{2,})([A-Z][a-zA-Z'-]*\.?(?:\s*,\s*[A-Z][a-zA-Z'-]*\.?(?:(?:[ \t]{1,2}|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\b(?!\s*[:/])\.?){0,2}|(?:(?:[ \t]{1,2}|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\b(?!\s*[:/])\.?){1,2}))/g,
+      /(?:\bPatient(?:'?s)?(?:\s*(?:Full\s+)?Name)?\b|\bPt\s*Name\b)(?:\s*:\s*|\s{2,})([A-Z][a-zA-Z'-]*\.?(?:\s*,\s*[A-Z][a-zA-Z'-]*\.?(?:(?:[ \t]{1,2}|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\b(?!\s*[:/])\.?){0,2}|(?:(?:[ \t]{1,2}|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\b(?!\s*[:/])\.?){1,2}))/g,
     baseScore: 0.85,
   },
   {
@@ -281,9 +292,13 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     // "Nurse Angela Rivera provided care" -> capturing "Angela Rivera
     // provided care"). Label alternatives are written in the capitalized
     // form they actually appear in on real reports; "cc" stays lowercase.
+    // "(Referring|Ordering|Attending|Consulting|Treating|Interpreting|
+    // Supervising) (Physician|Provider)" covers both title conventions at
+    // once, e.g. real reports using "Referring Provider" alongside
+    // "Consulting Physician" for the equivalent field on different forms.
     // See the PATIENT_NAME comment above for the continuation-word guards.
     pattern:
-      /(?:\bReferring\s*\/?\s*Family\s*MD\b|\bReferring\s+Physician\b|\bOrdering\s+Physician\b|\bAttending\s+Physician\b|\bReading\s+Radiologist\b|\bRadiologist\b|\bPathologist\b|\bElectronically\s+[Ss]igned(?:\s+[Bb]y)?\b|\bSigned\s+by\b|\bcc\b|\bNurse\b)\s*:?\s*(?:Dr\.?\s+)?([A-Z][a-zA-Z'-]*\.?(?:(?:[ \t]{1,2}|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\b(?!\s*[:/])\.?){1,2})/g,
+      /(?:\bReferring\s*\/?\s*Family\s*MD\b|\b(?:Referring|Ordering|Attending|Consulting|Treating|Interpreting|Supervising)\s+(?:Physician|Provider)\b|\bPrimary\s+Care\s+Physician\b|\bReading\s+Radiologist\b|\bRadiologist\b|\bPathologist\b|\bElectronically\s+[Ss]igned(?:\s+[Bb]y)?\b|\bSigned\s+by\b|\bcc\b|\bNurse\b)\s*:?\s*(?:Dr\.?\s+)?([A-Z][a-zA-Z'-]*\.?(?:(?:[ \t]{1,2}|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\b(?!\s*[:/])\.?){1,2})/g,
     baseScore: 0.85,
   },
 ];
