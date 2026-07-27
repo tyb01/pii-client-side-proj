@@ -4,7 +4,7 @@
 
 export type EntitySource =
   | "regex"
-  | "ner-gliner"
+  | "ner-openmed"
   | "ner-distilbert"
   | "manual";
 

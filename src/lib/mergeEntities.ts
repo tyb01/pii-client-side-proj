@@ -6,7 +6,7 @@ import type { EntitySource } from "@/lib/types";
 const SOURCE_PRIORITY: Record<EntitySource, number> = {
   manual: 100,
   regex: 90,
-  "ner-gliner": 70,
+  "ner-openmed": 70,
   "ner-distilbert": 50,
 };
 

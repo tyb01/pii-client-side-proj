@@ -6,7 +6,7 @@ import { getTextOffsetWithinContainer } from "@/lib/textOffset";
 
 const SOURCE_STYLES: Record<Entity["source"], string> = {
   regex: "bg-blue-200 dark:bg-blue-900/60",
-  "ner-gliner": "bg-purple-200 dark:bg-purple-900/60",
+  "ner-openmed": "bg-purple-200 dark:bg-purple-900/60",
   "ner-distilbert": "bg-green-200 dark:bg-green-900/60",
   manual: "bg-red-200 dark:bg-red-900/60",
 };

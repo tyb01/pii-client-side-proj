@@ -25,22 +25,22 @@ function drawRedactionBox(page: PDFPage, rect: PdfRect): void {
 }
 
 /**
- * Produces a redacted PDF where PII is actually removed from the page —
- * no visual box, just blank space where the text used to be:
+ * Produces a redacted PDF where PII is both actually removed from the page
+ * AND visibly covered by a black box, in every case:
  *
  *  1. Blank the matching bytes directly in each page's content stream (see
  *     pdfTextSurgery.ts) so the original glyphs are never drawn at all —
  *     a best-effort pass, safe for the common case of simple/standard-
  *     encoded fonts.
- *  2. Re-extract the result with pdf.js and check exactly which target
- *     values are still recoverable, per page — surgery can succeed for
- *     most entities on a page and fail for only one or two (e.g. a field
- *     using a font this pass can't safely decode), so this is checked per
- *     VALUE, not just per page.
- *  3. Any page with residual values gets a black box drawn only over the
- *     entities whose value is still actually recoverable — never over
- *     entities surgery already removed — and is then rasterized to a
- *     flattened image, so nothing can be extracted or read off it at all.
+ *  2. Draw a black box over every accepted entity's location on that page,
+ *     unconditionally — a consistent visible marker regardless of whether
+ *     surgery succeeded, not just a fallback for when it didn't.
+ *  3. Re-extract the result with pdf.js and check exactly which target
+ *     values are STILL recoverable despite the box (i.e. surgery failed to
+ *     blank them) — a box alone only covers the pixels, the original text
+ *     is still selectable/extractable underneath it. Any such page is
+ *     rasterized to a flattened image, so nothing can be extracted at all;
+ *     the box already drawn on it comes along for the ride.
  *
  * `verified` reflects a final re-check after step 3 and should always be
  * true; it's returned so the caller can surface an honest result either way
@@ -78,6 +78,13 @@ export async function buildRedactedPdf(
     } catch (err) {
       console.warn(`Text-stream redaction failed for page ${pageNum}, will rely on verification/rasterization:`, err);
     }
+
+    // One box per rect (not a single bounding box across all of them): an
+    // entity spanning a line wrap has one rect per line, and unioning those
+    // would draw one oversized box across everything in between.
+    for (const entity of pageEntities) {
+      for (const rect of entity.rects) drawRedactionBox(page, rect);
+    }
   }
 
   let bytes = await pdfDoc.save();
@@ -89,22 +96,15 @@ export async function buildRedactedPdf(
   const rasterizedPages: number[] = [];
 
   if (residualByPage.size > 0) {
-    for (const [pageNum, residualValues] of residualByPage) {
+    for (const pageNum of residualByPage.keys()) {
       const page = pages[pageNum - 1];
       if (!page) continue;
 
-      // Surgery didn't fully blank these SPECIFIC entities on this page —
-      // cover only them before rendering, so the flattened image below
-      // never captures readable PII pixels. Entities whose value isn't in
-      // `residualValues` were already successfully blanked and get no box.
-      // One box per rect (not a single bounding box across all of them):
-      // an entity spanning a line wrap has one rect per line, and unioning
-      // those would draw one oversized box across everything in between.
-      for (const entity of entitiesByPage.get(pageNum) ?? []) {
-        if (!residualValues.has(entity.text.trim())) continue;
-        for (const rect of entity.rects) drawRedactionBox(page, rect);
-      }
-
+      // Surgery didn't fully blank this page's text — the black box drawn
+      // above only covers the pixels, the original text is still
+      // extractable underneath it, so flatten to an image to guarantee
+      // nothing can be recovered. The box is already part of the page's
+      // content, so it's captured in the render below.
       const preRasterBytes = await pdfDoc.save();
       const pngBytes = await renderPageAsPng(preRasterBytes, pageNum);
       await rasterizePageInPlace(pdfDoc, page, pngBytes);

@@ -1,15 +1,12 @@
 import type { NextConfig } from "next";
 
 // This project runs on webpack, not Turbopack (see `--webpack` in the dev/
-// build scripts), specifically because of GLiNER: `gliner` bundles an old
-// @xenova/transformers whose env.js does `import fs from 'fs'` (bare
-// specifier) and crashes with "Cannot convert undefined or null to object"
-// unless something provides a non-nullish `fs`. webpack's `resolve.fallback`
-// handles that correctly (see below); Turbopack's `resolveAlias` — including
-// the documented `{ browser: ... }` conditional form — does not seem to
-// intercept this specific bare Node-builtin import in dynamically imported
-// chunks, at least as of Next.js 16.2 / gliner 0.0.19. If a future version
-// fixes this, `--webpack` can be dropped from the scripts.
+// build scripts). That was originally forced by GLiNER's bundled old
+// @xenova/transformers (bare `import fs from 'fs'` that only webpack's
+// `resolve.fallback` handled correctly), which is no longer a dependency
+// (replaced by @huggingface/transformers directly for OpenMed/DistilBERT).
+// Left on webpack rather than re-validating Turbopack now, since that's a
+// separate, broader change than swapping the NER model.
 const nextConfig: NextConfig = {
   // These heavy ML/PDF/OCR libraries are only ever meant to run in the
   // browser, but this "use client" page still gets server-rendered once on
@@ -22,16 +19,15 @@ const nextConfig: NextConfig = {
   // rendering succeed without needing them to actually work in Node.
   serverExternalPackages: [
     "tesseract.js",
-    "gliner",
-    "@xenova/transformers",
     "@huggingface/transformers",
     "onnxruntime-web",
     "onnxruntime-common",
     "pdfjs-dist",
     "sharp",
   ],
-  // Kept for the (currently non-functional-for-GLiNER, see note above) case
-  // where someone runs plain `next dev`/`next build` without `--webpack`.
+  // Kept as a fallback for the case where someone runs plain `next dev`/
+  // `next build` without `--webpack`; not currently re-validated against
+  // Turbopack end-to-end (see note above).
   turbopack: {
     resolveAlias: {
       sharp: "./src/lib/empty-module.ts",
