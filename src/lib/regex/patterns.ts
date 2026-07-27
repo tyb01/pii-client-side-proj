@@ -120,8 +120,13 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
   },
   {
     label: "LICENSE_NUMBER",
+    // See MEDICAL_RECORD_NUMBER above: segments allow SPACE around the
+    // hyphen, since PDF text extraction sometimes renders a styled ID with
+    // each segment as a separate positioned run ("D - 123 - 4567"). First
+    // segment allows a single character (unlike MRN's 2+): many US state
+    // license formats start with just one letter (e.g. "D1234567").
     pattern:
-      /(?:\bDriver'?s?\s+License\b|\bDL\s*(?:#|No\.?)|\bLicense\s*(?:No\.?|Number|ID|#))\s*[:#-]?\s*([A-Z0-9-]{5,15})\b/gi,
+      /(?:\bDriver'?s?\s+License\b|\bDL\s*(?:#|No\.?)|\bLicense\s*(?:No\.?|Number|ID|#))\s*[:#-]?\s*([A-Z0-9]{1,10}(?:\s*-\s*[A-Z0-9]{1,10}){0,4})\b/gi,
     baseScore: 0.85,
   },
   {
@@ -132,9 +137,13 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     // directly since "Path" alone isn't a safe generic trigger word.
     // Study/Case/Specimen Number-ID cover the same field under the label
     // convention radiology/pathology/lab reports each tend to use instead.
+    // Segments allow SPACE around the hyphen, same reason as
+    // MEDICAL_RECORD_NUMBER above (e.g. "LAB-2026-22190" extracted as
+    // "LAB - 2026 - 22190" — this is what silently dropped the whole value
+    // before, since the value stopped at "LAB" and never reached the rest).
     label: "ACCESSION_NUMBER",
     pattern:
-      /(?:\bPath\s+Accession\b|\bAccession\s*(?:No\.?|Number|ID|#)?|\bAcc\.?\s*#|\bStudy\s*(?:No\.?|Number|ID)\b|\bCase\s*(?:No\.?|Number)\b|\bSpecimen\s*(?:No\.?|Number|ID)\b)\s*[:#-]?\s*([A-Z0-9-]{5,20})\b/gi,
+      /(?:\bPath\s+Accession\b|\bAccession\s*(?:No\.?|Number|ID|#)?|\bAcc\.?\s*#|\bStudy\s*(?:No\.?|Number|ID)\b|\bCase\s*(?:No\.?|Number)\b|\bSpecimen\s*(?:No\.?|Number|ID)\b)\s*[:#-]?\s*([A-Z0-9]{2,10}(?:\s*-\s*[A-Z0-9]{1,10}){0,4})\b/gi,
     baseScore: 0.9,
   },
   {
@@ -145,8 +154,10 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     // 1-3 hyphenated alphanumeric groups — is distinctive enough to catch
     // on its own. Requires digits immediately after the letters, so it
     // doesn't collide with hyphen-prefixed IDs like "HRC-0447192" (MRN).
+    // Hyphens allow surrounding space for the same extraction-spacing
+    // reason as MEDICAL_RECORD_NUMBER above.
     label: "ACCESSION_NUMBER",
-    pattern: /\b[A-Z]{1,4}\d{2}(?:-[A-Z0-9]{1,6}){1,3}\b/g,
+    pattern: /\b[A-Z]{1,4}\d{2}(?:\s*-\s*[A-Z0-9]{1,6}){1,3}\b/g,
     baseScore: 0.6,
     validate: hasSubstantialAccessionSuffix,
   },

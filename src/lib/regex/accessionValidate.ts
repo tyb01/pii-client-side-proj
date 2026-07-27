@@ -9,6 +9,9 @@
  * substance there is enough to tell the two apart without needing a label.
  */
 export function hasSubstantialAccessionSuffix(value: string): boolean {
+  // Segments may carry padding from a spaced hyphen ("RAD22 - MR - 02219"),
+  // so trim before measuring length — otherwise a short segment like " MR "
+  // could pad up to look "substantial" when the real content is only 2 chars.
   const groups = value.split("-").slice(1);
-  return groups.some((g) => g.length >= 4);
+  return groups.some((g) => g.trim().length >= 4);
 }
