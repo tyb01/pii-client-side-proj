@@ -66,6 +66,20 @@ export async function runPipeline(
   }
   entities.push(...occurrences);
 
+  // Debug visibility only — logs what was detected, by whom, and (for
+  // model-sourced hits) at what confidence. Doesn't touch any detection,
+  // merge, or redaction logic above.
+  const isModelSource = (source: Entity["source"]) => source === "ner-openmed" || source === "ner-distilbert";
+  console.table(
+    entities.map((e) => ({
+      text: e.text,
+      label: e.label,
+      source: e.source,
+      confidence: isModelSource(e.source) ? e.score.toFixed(2) : "",
+      page: e.page,
+    }))
+  );
+
   onProgress({ stage: "done" });
 
   return { fileName: file.name, originalBytes, pages, entities };

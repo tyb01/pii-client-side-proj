@@ -242,6 +242,17 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
   //    newline (`\n(?![ \t]*\n)`), not a blank-line paragraph gap — without
   //    this, a new paragraph's capitalized first word (e.g. "cc: Dr. Harold
   //    Bennett\n\nThis report was reviewed...") reads as a 3rd name word.
+  //    Same-line whitespace is also capped at 1-2 chars (`[ \t]{1,2}`, not
+  //    `[ \t]+`): a table layout's next COLUMN label ("Patient" | "Donnelly,
+  //    Katherine R." | "Accession" | "PET24-03388") has no colon or slash
+  //    after it either — it's a bare word followed by its own value, same
+  //    as "Patient"/"MRN" themselves in this style of report — so the
+  //    `(?!\s*[:/])` guard alone doesn't reject it. What's different is the
+  //    GAP: a table's column gap is 3+ spaces, a real word-separator within
+  //    a name is exactly one. Capping the separator at 2 chars means a
+  //    continuation attempt across a wide column gap can never even start,
+  //    so "Accession" can't be swept into "Donnelly, Katherine R." as a 3rd
+  //    name word regardless of what character (if any) follows it.
   // Capping at 2 continuations (max 3 words) covers "First Middle Last"
   // while limiting how far a false continuation can reach either way.
   {
@@ -259,7 +270,7 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     // rejecting normal sentences starting with "Patient ".
     label: "PATIENT_NAME",
     pattern:
-      /\bPatient(?:\s*Name)?(?:\s*:\s*|\s{2,})([A-Z][a-zA-Z'-]*\.?(?:\s*,\s*[A-Z][a-zA-Z'-]*\.?(?:(?:[ \t]+|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\b(?!\s*[:/])\.?){0,2}|(?:(?:[ \t]+|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\b(?!\s*[:/])\.?){1,2}))/g,
+      /\bPatient(?:\s*Name)?(?:\s*:\s*|\s{2,})([A-Z][a-zA-Z'-]*\.?(?:\s*,\s*[A-Z][a-zA-Z'-]*\.?(?:(?:[ \t]{1,2}|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\b(?!\s*[:/])\.?){0,2}|(?:(?:[ \t]{1,2}|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\b(?!\s*[:/])\.?){1,2}))/g,
     baseScore: 0.85,
   },
   {
@@ -272,7 +283,7 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     // form they actually appear in on real reports; "cc" stays lowercase.
     // See the PATIENT_NAME comment above for the continuation-word guards.
     pattern:
-      /(?:\bReferring\s*\/?\s*Family\s*MD\b|\bReferring\s+Physician\b|\bOrdering\s+Physician\b|\bAttending\s+Physician\b|\bReading\s+Radiologist\b|\bRadiologist\b|\bPathologist\b|\bElectronically\s+[Ss]igned(?:\s+[Bb]y)?\b|\bSigned\s+by\b|\bcc\b|\bNurse\b)\s*:?\s*(?:Dr\.?\s+)?([A-Z][a-zA-Z'-]*\.?(?:(?:[ \t]+|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\b(?!\s*[:/])\.?){1,2})/g,
+      /(?:\bReferring\s*\/?\s*Family\s*MD\b|\bReferring\s+Physician\b|\bOrdering\s+Physician\b|\bAttending\s+Physician\b|\bReading\s+Radiologist\b|\bRadiologist\b|\bPathologist\b|\bElectronically\s+[Ss]igned(?:\s+[Bb]y)?\b|\bSigned\s+by\b|\bcc\b|\bNurse\b)\s*:?\s*(?:Dr\.?\s+)?([A-Z][a-zA-Z'-]*\.?(?:(?:[ \t]{1,2}|\n(?![ \t]*\n))[A-Z][a-zA-Z'-]*\b(?!\s*[:/])\.?){1,2})/g,
     baseScore: 0.85,
   },
 ];
