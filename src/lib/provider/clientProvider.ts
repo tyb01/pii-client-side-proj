@@ -11,14 +11,18 @@ function nextId(): string {
 
 // Only DOB is actually identifying on its own; report/collection/signing
 // dates (and their time-of-day companions) are clinically necessary and
-// shouldn't disappear by default. Sex/gender alone isn't identifying either
-// and is clinically relevant (e.g. reference ranges), so it's excluded too —
-// this applies uniformly whether "DOB / Age / Sex: ... / ... / Female" was
-// captured as one combined field or separately, since each piece is still
-// its own GENDER-labeled entity either way. Still detected and shown in the
-// review screen (so a reviewer can manually redact an unusual one), just
-// not pre-accepted like everything else.
-const NOT_REDACTED_BY_DEFAULT = new Set(["DATE", "TIME_OF_DAY", "COLLECTION_DATE", "GENDER"]);
+// shouldn't disappear. Sex/gender alone isn't identifying either and is
+// clinically relevant (e.g. reference ranges), so it's excluded too. Age is
+// the same story — a bare age number isn't identifying on its own and is
+// clinically necessary (dosing, reference ranges, etc.), regardless of
+// where it occurs (a standalone "Age:" field or the combined "DOB / Age /
+// Sex: ... / 53 / ..." header — each piece is still its own AGE-labeled
+// entity either way, only DOB itself should ever be redacted there).
+// Filtered out entirely — same treatment as EXCLUDED_RAW_LABELS in
+// openMedPostProcess.ts (occupation) — rather than kept-but-unaccepted:
+// these never become a detection at all, so they don't show up in the
+// review screen or the redaction count either.
+const EXCLUDED_LABELS = new Set(["DATE", "TIME_OF_DAY", "COLLECTION_DATE", "GENDER", "AGE"]);
 
 /**
  * The client-side implementation of RedactionProvider (see the architecture
@@ -40,13 +44,15 @@ export function createClientRedactionProvider(nerBackendId: NerBackendId | null)
         }
       }
 
-      const merged = mergeEntityDrafts([...regexDrafts, ...nerDrafts]);
+      const merged = mergeEntityDrafts([...regexDrafts, ...nerDrafts]).filter(
+        (draft) => !EXCLUDED_LABELS.has(draft.label)
+      );
 
       return merged.map((draft) => ({
         ...draft,
         id: nextId(),
         page,
-        accepted: !NOT_REDACTED_BY_DEFAULT.has(draft.label),
+        accepted: true,
         rects: [],
       }));
     },

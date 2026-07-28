@@ -38,6 +38,14 @@ function normalizeLabel(raw: string): string {
   return LABEL_OVERRIDES[raw] ?? raw.toUpperCase();
 }
 
+// Dropped entirely — not redacted, not shown in the review screen, never
+// reaches merge/redaction at all. "occupation" alone isn't identifying and
+// is clinically/contextually useful (e.g. "construction worker" as an
+// exposure-history detail), so filtering it out here (at the model-output
+// stage) rather than just defaulting it to unaccepted means it never shows
+// up as a detection to begin with.
+const EXCLUDED_RAW_LABELS = new Set(["occupation"]);
+
 interface AbsoluteEntity {
   label: string;
   score: number;
@@ -70,6 +78,7 @@ function toAbsoluteEntities(
 
   for (const r of results) {
     if (r.score < CONFIDENCE_THRESHOLD) continue;
+    if (EXCLUDED_RAW_LABELS.has(r.entity_group.toLowerCase())) continue;
 
     let span = r.start !== undefined && r.end !== undefined ? { start: r.start, end: r.end } : null;
     if (!span) span = locateWord(chunkText, r.word, cursor);

@@ -214,9 +214,18 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     // "ODX" visible) — this is a deliberately loose net; the label-anchored
     // recognizers above still win on precision/labeling where they apply,
     // this is the fallback for everything else.
+    //
+    // Token definition excludes "(" and ")": a value can carry its own
+    // trailing parenthetical annotation (e.g. "Linked Case: S24-006815
+    // (liver core biopsy)"), and a short phrase like that can otherwise
+    // fit within the "few tokens then a colon" allowance above — parens
+    // never appear in an actual field label, so excluding them means no
+    // position inside a parenthetical can ever complete the "next label"
+    // token run, and the capture correctly runs through the whole
+    // annotation instead of stopping partway into it.
     label: "IDENTIFIER",
     pattern:
-      /\b(?:[A-Z][a-zA-Z]*\s+){0,3}(?:IDs?|Nos?|Numbers?|Codes?|Blocks?|Records?|References?|Refs?|Identifiers?|Accessions?|Barcodes?|Serials?|Charts?|Cases?|Slides?|Cassettes?|Batch(?:es)?|Lots?)\b\.?(?:\s*:\s*|\s{2,})([A-Za-z0-9][^\n]*?)(?=\s+(?:[^\s:/\n]+(?:\s+|\s*\/\s*)){0,3}[^\s:/\n]+\s*:|\s{2,}[A-Z]|\n|$)/g,
+      /\b(?:[A-Z][a-zA-Z]*\s+){0,3}(?:IDs?|Nos?|Numbers?|Codes?|Blocks?|Records?|References?|Refs?|Identifiers?|Accessions?|Barcodes?|Serials?|Charts?|Cases?|Slides?|Cassettes?|Batch(?:es)?|Lots?)\b\.?(?:\s*:\s*|\s{2,})([A-Za-z0-9][^\n]*?)(?=\s+(?:[^\s:/()\n]+(?:\s+|\s*\/\s*)){0,3}[^\s:/()\n]+\s*:|\s{2,}[A-Z]|\n|$)/g,
     baseScore: 0.7,
   },
   {
