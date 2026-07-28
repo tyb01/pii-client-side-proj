@@ -223,9 +223,18 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     // position inside a parenthetical can ever complete the "next label"
     // token run, and the capture correctly runs through the whole
     // annotation instead of stopping partway into it.
+    //
+    // "Reference"/"Ref" require a "Number"/"No" qualifier (unlike the other
+    // keywords, which stand alone) — a BARE "Reference" is a near-universal
+    // lab-report column header (short for "Reference Range/Interval"), not
+    // an identifier label on its own. Without the qualifier, a table header
+    // row like "Test   Result   Reference   Flag" was read as label
+    // "Reference" / value "Flag", redacting the word "Flag" as if it were
+    // PII. "Reference Number:"/"Ref No.:" (an actual ID field) still match
+    // fine since the qualifier is required right there anyway.
     label: "IDENTIFIER",
     pattern:
-      /\b(?:[A-Z][a-zA-Z]*\s+){0,3}(?:IDs?|Nos?|Numbers?|Codes?|Blocks?|Records?|References?|Refs?|Identifiers?|Accessions?|Barcodes?|Serials?|Charts?|Cases?|Slides?|Cassettes?|Batch(?:es)?|Lots?)\b\.?(?:\s*:\s*|\s{2,})([A-Za-z0-9][^\n]*?)(?=\s+(?:[^\s:/()\n]+(?:\s+|\s*\/\s*)){0,3}[^\s:/()\n]+\s*:|\s{2,}[A-Z]|\n|$)/g,
+      /\b(?:[A-Z][a-zA-Z]*\s+){0,3}(?:IDs?|Nos?|Numbers?|Codes?|Blocks?|Records?|Reference\s+Numbers?|Ref\s*Nos?|Identifiers?|Accessions?|Barcodes?|Serials?|Charts?|Cases?|Slides?|Cassettes?|Batch(?:es)?|Lots?)\b\.?(?:\s*:\s*|\s{2,})([A-Za-z0-9][^\n]*?)(?=\s+(?:[^\s:/()\n]+(?:\s+|\s*\/\s*)){0,3}[^\s:/()\n]+\s*:|\s{2,}[A-Z]|\n|$)/g,
     baseScore: 0.7,
   },
   {
