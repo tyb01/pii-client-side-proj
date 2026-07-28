@@ -23,8 +23,25 @@ export function mergeEntityDrafts(drafts: EntityDraft[]): EntityDraft[] {
       kept.push(draft);
       continue;
     }
-    if (SOURCE_PRIORITY[draft.source] > SOURCE_PRIORITY[kept[overlapIndex].source]) {
+    const existing = kept[overlapIndex];
+    const draftPriority = SOURCE_PRIORITY[draft.source];
+    const existingPriority = SOURCE_PRIORITY[existing.source];
+    if (draftPriority > existingPriority) {
       kept[overlapIndex] = draft;
+    } else if (draftPriority === existingPriority) {
+      // Same source tier (e.g. two regex recognizers, like the generic
+      // identifier catch-all overlapping a named one) — prefer whichever
+      // captured the WIDER span. A narrower match here is exactly how a
+      // field ends up only partially redacted (e.g. "Report ID:
+      // ODX2213087" matched as just "ODX"): for a redaction tool, the more
+      // complete span is always the safer one to keep, even at the cost
+      // of a less-specific label. Only fall back to score when the widths
+      // tie too.
+      const draftLen = draft.end - draft.start;
+      const existingLen = existing.end - existing.start;
+      if (draftLen > existingLen || (draftLen === existingLen && draft.score > existing.score)) {
+        kept[overlapIndex] = draft;
+      }
     }
   }
 

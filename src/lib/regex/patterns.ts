@@ -125,8 +125,21 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     // each segment as a separate positioned run ("D - 123 - 4567"). First
     // segment allows a single character (unlike MRN's 2+): many US state
     // license formats start with just one letter (e.g. "D1234567").
+    //
+    // No `i` flag (unlike the other ID-style recognizers above): under
+    // `/i`, `\bDL\b` also matches the lab-value unit "dL" (deciliter, as in
+    // "mg/dL" — extremely common in any lab report), and `No\.?` right
+    // after it then matches the start of the word "Normal", with the
+    // case-insensitive `[A-Z0-9]` capture group happily grabbing the
+    // lowercase leftover "rmal" as a fake "license number" — which then
+    // gets multiplied across every other "Normal" cell in the report by
+    // occurrence expansion. Real license labels ("License", "Driver's
+    // License") are consistently capitalized in these reports, so losing
+    // hypothetical all-lowercase label variants costs far less than this
+    // false-positive did. Same bug class already fixed in PHYSICIAN_NAME
+    // above for the same reason (see its comment).
     pattern:
-      /(?:\bDriver'?s?\s+License\b|\bDL\s*(?:#|No\.?)|\bLicense\s*(?:No\.?|Number|ID|#))\s*[:#-]?\s*([A-Z0-9]{1,10}(?:\s*-\s*[A-Z0-9]{1,10}){0,4})\b/gi,
+      /(?:\bDriver'?s?\s+License\b|\bDL\s*(?:#|No\.?)|\bLicense\s*(?:No\.?|Number|ID|#))\s*[:#-]?\s*([A-Z0-9]{1,10}(?:\s*-\s*[A-Z0-9]{1,10}){0,4})\b/g,
     baseScore: 0.85,
   },
   {
@@ -160,6 +173,51 @@ export const REGEX_RECOGNIZERS: RegexRecognizer[] = [
     pattern: /\b[A-Z]{1,4}\d{2}(?:\s*-\s*[A-Z0-9]{1,6}){1,3}\b/g,
     baseScore: 0.6,
     validate: hasSubstantialAccessionSuffix,
+  },
+  {
+    // Generic catch-all for ANY "Label: value" field whose label ends in an
+    // identifier-suggestive word — not a fixed list of exact label phrases
+    // like the recognizers above. This is what covers a label we haven't
+    // seen before ("Report ID", "Source Block", ...): as long as the label
+    // ends in one of these nouns, it's caught and the FULL value is
+    // captured, without needing that exact phrase added by name.
+    //
+    // The separator after the label can be a colon OR just a wide gap with
+    // no colon at all (`(?:\s*:\s*|\s{2,})`) — some table layouts render a
+    // bold label next to its value with nothing but cell-gap whitespace
+    // between them (e.g. "MRN   MT-2026-04471", no colon anywhere). Note
+    // `\b\.?` (not `\.?\b`) before that: an abbreviation like "No." sits
+    // between two non-word characters once the period is included (the
+    // period itself, then trailing whitespace), so a `\b` check placed
+    // right after the period never matches — same class of bug as the
+    // physician/patient-name continuation fix elsewhere in this file.
+    // Checking the boundary on the word itself, then consuming the period
+    // unconditionally after, avoids that.
+    //
+    // The value is captured lazily up to end-of-line, OR up to whatever
+    // looks like the START OF THE NEXT LABEL — deliberately NOT "does the
+    // next thing match one of these specific label shapes" (Title Case?
+    // all-caps? "Date of Birth" has a lowercase "of"...), since we can't
+    // enumerate every label format any more than we can enumerate every
+    // label NAME. Instead this checks purely STRUCTURAL signals true of
+    // any label regardless of wording: either a short run of non-colon
+    // tokens (treating "/" as a joiner, not its own token, so "DOB / Age /
+    // Sex" counts as 3 tokens, not 5) immediately followed by a colon, OR
+    // — for the no-colon table layout — a wide gap immediately followed by
+    // a capitalized word (the next bold label cell). Also NOT just "2+
+    // spaces" on its own: a value can itself be rendered with wide internal
+    // letter-spacing by the PDF ("ODX  2213087" as ONE value, not two
+    // fields), which a fixed space-count alone can't tell apart from an
+    // actual next-field gap — checking what FOLLOWS the gap is what makes
+    // the stopping decision correct either way. This is what fixes a field
+    // being only PARTIALLY redacted (e.g. "Report ID: ODX2213087" leaving
+    // "ODX" visible) — this is a deliberately loose net; the label-anchored
+    // recognizers above still win on precision/labeling where they apply,
+    // this is the fallback for everything else.
+    label: "IDENTIFIER",
+    pattern:
+      /\b(?:[A-Z][a-zA-Z]*\s+){0,3}(?:IDs?|Nos?|Numbers?|Codes?|Blocks?|Records?|References?|Refs?|Identifiers?|Accessions?|Barcodes?|Serials?|Charts?|Cases?|Slides?|Cassettes?|Batch(?:es)?|Lots?)\b\.?(?:\s*:\s*|\s{2,})([A-Za-z0-9][^\n]*?)(?=\s+(?:[^\s:/\n]+(?:\s+|\s*\/\s*)){0,3}[^\s:/\n]+\s*:|\s{2,}[A-Z]|\n|$)/g,
+    baseScore: 0.7,
   },
   {
     label: "AGE",

@@ -11,10 +11,14 @@ function nextId(): string {
 
 // Only DOB is actually identifying on its own; report/collection/signing
 // dates (and their time-of-day companions) are clinically necessary and
-// shouldn't disappear by default. Still detected and shown in the review
-// screen (so a reviewer can manually redact an unusual one), just not
-// pre-accepted like everything else.
-const NOT_REDACTED_BY_DEFAULT = new Set(["DATE", "TIME_OF_DAY", "COLLECTION_DATE"]);
+// shouldn't disappear by default. Sex/gender alone isn't identifying either
+// and is clinically relevant (e.g. reference ranges), so it's excluded too —
+// this applies uniformly whether "DOB / Age / Sex: ... / ... / Female" was
+// captured as one combined field or separately, since each piece is still
+// its own GENDER-labeled entity either way. Still detected and shown in the
+// review screen (so a reviewer can manually redact an unusual one), just
+// not pre-accepted like everything else.
+const NOT_REDACTED_BY_DEFAULT = new Set(["DATE", "TIME_OF_DAY", "COLLECTION_DATE", "GENDER"]);
 
 /**
  * The client-side implementation of RedactionProvider (see the architecture
